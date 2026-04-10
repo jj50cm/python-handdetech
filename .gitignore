@@ -25,3 +25,9 @@ ENV/
 
 # macOS
 .DS_Store
+
+# Model weights and exports (large binaries)
+*.pt
+*.mlpackage
+*.mlmodel
+*.onnx
