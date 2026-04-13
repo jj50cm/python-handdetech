@@ -1,5 +1,6 @@
 import cv2
 import time
+import torch
 from ultralytics import YOLO
 
 # COCO class index for "cell phone"
@@ -10,38 +11,29 @@ TEXT_COLOR = (0, 255, 0)
 BOX_THICKNESS = 2
 
 MODES = {
-    "gpu": dict(model_path="yolov8s.mlpackage", device=None,  imgsz=416, conf=0.3,  label="GPU  (YOLOv8s CoreML)"),
-    "cpu": dict(model_path="yolov8n.pt",        device="cpu", imgsz=320, conf=0.4,  label="CPU  (YOLOv8n PyTorch)"),
+    "gpu": dict(model_path="yolov8s.pt", device="cuda:0", imgsz=640, conf=0.3, label="GPU  (YOLOv8s CUDA)"),
+    "cpu": dict(model_path="yolov8n.pt", device="cpu",    imgsz=320, conf=0.4, label="CPU  (YOLOv8n PyTorch)"),
 }
-
-COREML_MODEL = "yolov8s.mlpackage"
-
-
-def export_coreml():
-    import os
-    if os.path.exists(COREML_MODEL):
-        return COREML_MODEL
-    print("Exporting YOLOv8s to CoreML (one-time, ~60s)...")
-    base = YOLO("yolov8s.pt")
-    path = base.export(format="coreml", imgsz=416, nms=False)
-    print(f"Exported to: {path}")
-    return path
 
 
 def load_model(mode_key):
     cfg = MODES[mode_key]
     print(f"Loading {cfg['label']}...")
-    task = "detect" if mode_key == "gpu" else None
-    model = YOLO(cfg["model_path"], **({"task": task} if task else {}))
+    model = YOLO(cfg["model_path"])
     print("Ready.")
     return model
 
 
 def run_inference(model, frame, cfg):
-    kwargs = dict(imgsz=cfg["imgsz"], conf=cfg["conf"], iou=0.45, classes=[PHONE_CLASS_ID], verbose=False)
-    if cfg["device"]:
-        kwargs["device"] = cfg["device"]
-    return model(frame, **kwargs)
+    return model(
+        frame,
+        imgsz=cfg["imgsz"],
+        conf=cfg["conf"],
+        iou=0.45,
+        device=cfg["device"],
+        classes=[PHONE_CLASS_ID],
+        verbose=False,
+    )
 
 
 def draw_boxes(frame, results):
@@ -58,10 +50,18 @@ def draw_boxes(frame, results):
 
 
 def main():
-    export_coreml()
+    if not torch.cuda.is_available():
+        print("WARNING: CUDA not available — falling back to CPU mode.")
+        initial_mode = "cpu"
+    else:
+        print(f"CUDA device: {torch.cuda.get_device_name(0)}")
+        initial_mode = "gpu"
 
-    mode_key = "gpu"
-    models = {"gpu": load_model("gpu"), "cpu": None}  # lazy-load CPU on first switch
+    mode_key = initial_mode
+    models = {initial_mode: load_model(initial_mode)}
+    # Lazily load the other mode on first switch
+    other = "cpu" if initial_mode == "gpu" else "gpu"
+    models[other] = None
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -105,7 +105,7 @@ def main():
         elif key == ord("m"):
             mode_key = "cpu" if mode_key == "gpu" else "gpu"
             if models[mode_key] is None:
-                print("Loading CPU model for the first time...")
+                print(f"Loading {MODES[mode_key]['label']} for the first time...")
                 models[mode_key] = load_model(mode_key)
             print(f"Switched to: {MODES[mode_key]['label']}")
 
