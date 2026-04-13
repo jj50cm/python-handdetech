@@ -1,3 +1,4 @@
+import argparse
 import cv2
 import time
 import torch
@@ -14,6 +15,19 @@ MODES = {
     "gpu": dict(model_path="yolov8s.pt", device="cuda:0", imgsz=640, conf=0.3, label="GPU  (YOLOv8s CUDA)"),
     "cpu": dict(model_path="yolov8n.pt", device="cpu",    imgsz=320, conf=0.4, label="CPU  (YOLOv8n PyTorch)"),
 }
+
+
+def open_camera(source):
+    # Convert numeric string to int so cv2 uses a device index, not a filename
+    try:
+        source = int(source)
+    except (ValueError, TypeError):
+        pass  # keep as string URL
+
+    cap = cv2.VideoCapture(source)
+    if not cap.isOpened():
+        raise RuntimeError(f"Could not open camera source: {source!r}")
+    return cap
 
 
 def load_model(mode_key):
@@ -50,6 +64,17 @@ def draw_boxes(frame, results):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Hand-held phone detector")
+    parser.add_argument(
+        "--source",
+        default="http://localhost:8080/video",
+        help=(
+            "Camera source: device index (0, 1, …) or stream URL. "
+            "Default: http://localhost:8080/video  (ADB-forwarded IP Webcam)"
+        ),
+    )
+    args = parser.parse_args()
+
     if not torch.cuda.is_available():
         print("WARNING: CUDA not available — falling back to CPU mode.")
         initial_mode = "cpu"
@@ -59,22 +84,17 @@ def main():
 
     mode_key = initial_mode
     models = {initial_mode: load_model(initial_mode)}
-    # Lazily load the other mode on first switch
     other = "cpu" if initial_mode == "gpu" else "gpu"
     models[other] = None
 
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("Error: could not open camera.")
-        return
-
+    print(f"Opening camera source: {args.source!r}")
+    cap = open_camera(args.source)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     for _ in range(5):
         cap.read()
 
     prev_time = time.time()
-
     print("Controls: M = toggle GPU/CPU mode | Q = quit")
 
     while True:
