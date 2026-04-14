@@ -1,42 +1,38 @@
 @echo off
 :: ============================================================
 :: start_phone_camera.bat
-:: Sets up ADB port forwarding from the Android phone's
-:: IP Webcam stream and launches the detector.
+:: Launches the phone detector using IP Webcam over Wi-Fi
+:: or ADB USB port forwarding.
 ::
 :: One-time phone setup:
-::   1. Enable USB debugging:
-::      Settings > About phone > tap "Build number" 7 times
-::      Settings > Developer options > USB debugging ON
-::   2. Install "IP Webcam" from the Play Store
-::   3. Open IP Webcam > tap "Start server"
-::   4. Connect phone via USB and allow USB debugging when prompted
+::   1. Install "IP Webcam" from the Play Store
+::   2. Open IP Webcam > tap "Start server"
+::   3. Note the IP address shown on the phone screen
 ::
-:: One-time PC setup:
-::   1. Download ADB platform-tools (no Android Studio needed):
-::      https://developer.android.com/tools/releases/platform-tools
-::   2. Extract to C:\platform-tools
-::   3. Add C:\platform-tools to your system PATH
+:: Usage:
+::   start_phone_camera.bat              <- Wi-Fi using PHONE_IP below
+::   start_phone_camera.bat usb          <- ADB USB forwarding
 :: ============================================================
 
+set PHONE_IP=192.168.0.161
 set PHONE_PORT=8080
 set VENV=.venv\Scripts\activate.bat
+set ADB=adb
 
-echo Checking ADB...
-where adb >nul 2>&1
-if errorlevel 1 (
-    echo ERROR: adb not found. Download platform-tools from:
-    echo   https://developer.android.com/tools/releases/platform-tools
-    pause
-    exit /b 1
-)
+if /I "%1"=="usb" goto usb_mode
 
-echo Checking connected devices...
-adb devices
+:wifi_mode
+set STREAM_URL=http://%PHONE_IP%:%PHONE_PORT%/video
+echo Wi-Fi mode: connecting to %STREAM_URL%
+echo Make sure IP Webcam is running on your phone.
 echo.
+goto launch
 
-echo Forwarding port %PHONE_PORT% over USB...
-adb forward tcp:%PHONE_PORT% tcp:%PHONE_PORT%
+:usb_mode
+echo USB mode: setting up ADB port forwarding...
+%ADB% devices
+echo.
+%ADB% forward tcp:%PHONE_PORT% tcp:%PHONE_PORT%
 if errorlevel 1 (
     echo ERROR: ADB forward failed. Make sure:
     echo   - Phone is connected via USB
@@ -45,16 +41,19 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-
 echo Port forwarding active: localhost:%PHONE_PORT% -> phone:%PHONE_PORT%
 echo.
+set STREAM_URL=http://localhost:%PHONE_PORT%/video
 
+:launch
 echo Activating virtual environment...
 call %VENV%
 
 echo Starting detector...
-python detect.py --source http://localhost:%PHONE_PORT%/video
+python detect.py --source %STREAM_URL%
 
-echo.
-echo Cleaning up ADB forward...
-adb forward --remove tcp:%PHONE_PORT%
+if /I "%1"=="usb" (
+    echo.
+    echo Cleaning up ADB forward...
+    %ADB% forward --remove tcp:%PHONE_PORT%
+)
